@@ -3,9 +3,11 @@ package router
 import (
 	"strconv"
 
+	"fileServer/config"
+	"fileServer/file"
+	"fileServer/middlewares"
+
 	"github.com/kataras/iris"
-	"le5le.com/fileServer/config"
-	"le5le.com/fileServer/file"
 )
 
 // Listen 监听路由
@@ -14,6 +16,8 @@ func Listen() {
 	route.OnErrorCode(iris.StatusInternalServerError, func(ctx iris.Context) {
 		ctx.JSON("Internal server in file server!")
 	})
+
+	route.Use(middlewares.Usr)
 
 	// 文件模块
 	file.Route(route)

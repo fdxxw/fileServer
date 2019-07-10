@@ -1,85 +1,186 @@
 package file
 
 import (
-	"log"
+	"fileServer/utils"
 	"os"
+	"path"
+	"strings"
+
+	"fileServer/keys"
 
 	"github.com/kataras/iris"
+	"github.com/rs/zerolog/log"
 	"gopkg.in/mgo.v2/bson"
-	"le5le.com/fileServer/keys"
 )
 
 const (
 	// CachePath 文件临时存储目录
-	CachePath = "./out/uploads"
+	CachePath = "./out/oss"
 )
 
-// Upload 文件上传
-func Upload(ctx iris.Context) {
-	ret := make(map[string]interface{})
-	defer ctx.JSON(ret)
+func init() {
+	if !IsExist(CachePath) {
+		err := os.MkdirAll(CachePath, os.ModePerm)
+		if err != nil {
+			log.Panic().Err(err).Msgf("Fail to create the CachePath: %s", CachePath)
+		}
+	}
+}
 
-	file, info, err := ctx.FormFile("file")
-
-	if err != nil {
-		ret["error"] = keys.ErrorFile + err.Error()
+// Limit 普通文件大小限制
+func Limit(ctx iris.Context) {
+	if ctx.GetContentLength() > 10<<20 {
+		ctx.StatusCode(iris.StatusRequestEntityTooLarge)
+		ctx.JSON(bson.M{"error": keys.ErrorFileMaxSize})
 		return
 	}
+	ctx.Next()
+}
 
-	defer file.Close()
-	filename := GetUniqueName(info.Filename)
+// UploadFile 上传普通文件
+func UploadFile(ctx iris.Context) {
+	path := upload(ctx, false)
+	if path != "" {
+		ctx.JSON(bson.M{"url": "/file" + path})
+	}
+}
 
-	_, err = Put(filename, file, bson.M{"owner": bson.M{"id": ctx.Values().GetString("uid")}})
-	if err == nil {
-		ret["name"] = filename
-		ret["url"] = "/image/" + filename
-	} else {
-		ret["error"] = keys.ErrorFileSave + err.Error()
+// UploadImage 上传图片
+func UploadImage(ctx iris.Context) {
+	path := upload(ctx, true)
+	if path != "" {
+		ctx.JSON(bson.M{"url": "/image" + path})
+	}
+}
+
+// File 获取普通文件
+func File(ctx iris.Context) {
+	fullpath := download(ctx)
+	if fullpath != "" {
+		ctx.ServeFile(fullpath, true)
 	}
 }
 
 // Image 获取图片
 func Image(ctx iris.Context) {
-	filename := ctx.Params().Get("filename")
-	if filename == "" {
-		ctx.StatusCode(iris.StatusNotFound)
-		ctx.JSON("")
+	fullpath := download(ctx)
+	if fullpath == "" {
 		return
-	}
-
-	if !IsExist(CachePath) {
-		err := os.MkdirAll(CachePath, os.ModePerm)
-		if err != nil {
-			log.Printf("[error]Can not create the dir of cache: err=%v; dir=%v\r\n", err, CachePath)
-			ctx.StatusCode(iris.StatusInternalServerError)
-			ctx.JSON("")
-			return
-		}
-	}
-
-	fullpath := CachePath + "/" + filename
-	if !IsExist(fullpath) {
-		err := Get(filename, CachePath)
-		if err != nil {
-			log.Printf("[error]file.Image: err=%v; filename=%v\r\n", err, filename)
-			ctx.StatusCode(iris.StatusNotFound)
-			ctx.JSON("")
-			return
-		}
 	}
 
 	w, _ := ctx.URLParamInt("w")
 	h, _ := ctx.URLParamInt("h")
-
 	if w > 0 || h > 0 {
 		thumb, err := ImageThumbnail(fullpath, w, h)
 		if err == nil {
 			fullpath = thumb
 		} else {
-			log.Printf("[error]ImageThumbnail: err=%v; fullpath=%v\r\n", err, fullpath)
+			log.Error().Err(err).Str("func", "file.Image").Msgf("Fail to thumbnail: fullpath=%s", fullpath)
 		}
-
 	}
 
 	ctx.ServeFile(fullpath, true)
+}
+
+// upload 上传文件
+func upload(ctx iris.Context, public bool) string {
+	file, info, err := ctx.FormFile("file")
+	if err != nil {
+		log.Warn().Err(err).Str("func", "file.upload").Msg("Fail to read file from FormFile.")
+		ctx.JSON(bson.M{"error": keys.ErrorFile, "system": err.Error()})
+		return ""
+	}
+	defer file.Close()
+
+	fullname := ctx.FormValue("path")
+	if fullname == "" {
+		fullname = info.Filename
+	}
+	if fullname[0] != '/' {
+		fullname = "/" + fullname
+	}
+
+	randomName := ctx.FormValue("randomName")
+	if randomName != "" {
+		dir, filename := path.Split(fullname)
+		ext := path.Ext(filename)
+		rand, _ := utils.GetRandString(8)
+		if ext != "" {
+			fullname = dir + strings.TrimSuffix(filename, ext) + "_" + rand + ext
+		} else {
+			fullname = dir + filename + "_" + rand
+		}
+	}
+
+	pub := ctx.FormValue("public")
+	if pub == "false" {
+		public = false
+	} else if pub != "" {
+		public = true
+	}
+
+	uid := ctx.Values().GetString("uid")
+	fileInfo, _ := Info(fullname)
+	if fileInfo != nil && fileInfo.Metadata.UserID == uid {
+		ctx.JSON(bson.M{"error": keys.ErrorFileExists})
+		return ""
+	}
+
+	tags := strings.Split(ctx.FormValue("tags"), ",")
+	_, err = Put(fullname, file, bson.M{
+		"userId":   ctx.Values().GetString("uid"),
+		"username": ctx.Values().GetString("username"),
+		"tags":     tags,
+		"public":   public,
+	})
+	if err != nil {
+		ctx.JSON(bson.M{"error": keys.ErrorFile, "system": err.Error()})
+		return ""
+	}
+
+	return fullname
+}
+
+// download 获取文件
+func download(ctx iris.Context) string {
+	filename := "/" + ctx.Params().Get("path")
+	log.Debug().Msg(filename)
+	if filename == "" {
+		ctx.StatusCode(iris.StatusNotFound)
+		ctx.JSON("")
+		return ""
+	}
+
+	uid := ctx.Values().GetString("uid")
+	fileInfo, _ := Info(filename)
+	if fileInfo == nil {
+		log.Warn().
+			Str("func", "file.download").
+			Str("remoteAddr", ctx.RemoteAddr()).
+			Msgf("Error to read file: file=%s.", filename)
+		ctx.StatusCode(iris.StatusNotFound)
+		ctx.JSON("")
+		return ""
+	}
+	if !fileInfo.Metadata.Public && fileInfo.Metadata.UserID != uid {
+		log.Warn().
+			Str("func", "file.download").
+			Str("remoteAddr", ctx.RemoteAddr()).
+			Msgf("No auth to read file: file=%s, fileinfo=%v.", filename, fileInfo)
+		ctx.StatusCode(iris.StatusNotFound)
+		ctx.JSON("")
+		return ""
+	}
+
+	fullpath := CachePath + "/" + uid + filename
+	if !IsExist(fullpath) {
+		err := Get(filename, CachePath+"/"+uid)
+		if err != nil {
+			ctx.StatusCode(iris.StatusNotFound)
+			ctx.JSON("")
+			return ""
+		}
+	}
+
+	return fullpath
 }

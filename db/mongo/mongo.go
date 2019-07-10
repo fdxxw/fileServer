@@ -1,11 +1,12 @@
 package mongo
 
 import (
-	"log"
 	"time"
 
+	"github.com/rs/zerolog/log"
 	mgo "gopkg.in/mgo.v2"
-	"le5le.com/fileServer/config"
+
+	"fileServer/config"
 )
 
 // Session 全局mongo会话
@@ -36,7 +37,7 @@ func Init() bool {
 	if err == nil {
 		Session.SetMode(mgo.Monotonic, true)
 	} else {
-		log.Printf("[error]mongo connect error: %v\r\n", err)
+		log.Error().Err(err).Msg("Fail to connect mongo.")
 		return false
 	}
 

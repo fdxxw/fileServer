@@ -2,28 +2,25 @@ package middlewares
 
 import (
 	"fmt"
-	"log"
 
 	jwt "github.com/dgrijalva/jwt-go"
 	"github.com/kataras/iris"
-	"le5le.com/fileServer/config"
-	"le5le.com/fileServer/keys"
-	"le5le.com/fileServer/utils"
+	"github.com/rs/zerolog/log"
+
+	"fileServer/config"
+	"fileServer/keys"
+	"fileServer/utils"
 )
 
-// Auth 身份认证中间件
-func Auth(ctx iris.Context) {
-	if config.App.Jwt == "" {
-		ctx.Values().Set("uid", "0")
-		ctx.Values().Set("role", "system")
-		ctx.Next()
-		return
-	}
-
+// Usr 解析用户身份
+func Usr(ctx iris.Context) {
 	// 获取header
 	data := ctx.GetHeader("Authorization")
 	if data == "" {
-		unAuth(ctx)
+		data = ctx.URLParam("Authorization")
+	}
+	if data == "" {
+		ctx.Next()
 		return
 	}
 
@@ -36,31 +33,47 @@ func Auth(ctx iris.Context) {
 	})
 
 	if err != nil {
-		log.Printf("Jwt parse error: %s, token=%s, jwt=%s", err, data, config.App.Jwt)
-		unAuth(ctx)
+		log.Error().
+			Err(err).
+			Str("func", "middlewares.Usr").
+			Str("token", data).
+			Str("jwt", config.App.Jwt).
+			Str("remoteAddr", ctx.RemoteAddr()).
+			Msg("Jwt parse error.")
+		ctx.Next()
 		return
 	}
 
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok || !token.Valid {
-		unAuth(ctx)
+		log.Warn().
+			Str("func", "middlewares.Usr").
+			Str("token", data).
+			Str("jwt", config.App.Jwt).
+			Str("remoteAddr", ctx.RemoteAddr()).
+			Msg("Jwt invalid.")
+		ctx.Next()
 		return
 	}
 
 	// 设置uid和role
 	uid := utils.String(claims["uid"])
-	if uid == "" {
-		unAuth(ctx)
-		return
+	if uid != "" {
+		ctx.Values().Set("uid", uid)
+		ctx.Values().Set("username", utils.String(claims["username"]))
+		ctx.Values().Set("role", utils.String(claims["role"]))
 	}
-
-	ctx.Values().Set("uid", uid)
-	ctx.Values().Set("role", utils.String(claims["role"]))
 
 	ctx.Next()
 }
 
-func unAuth(ctx iris.Context) {
+// Auth 身份认证中间件
+func Auth(ctx iris.Context) {
+	if ctx.Values().GetString("uid") != "" {
+		ctx.Next()
+		return
+	}
+
 	ctx.StatusCode(iris.StatusUnauthorized)
 	ret := make(map[string]interface{})
 	ret["error"] = keys.ErrorNeedSign

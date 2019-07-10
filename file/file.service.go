@@ -10,15 +10,17 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
 	"github.com/nfnt/resize"
+	"github.com/rs/zerolog/log"
 	"gopkg.in/mgo.v2/bson"
 
-	"le5le.com/fileServer/config"
-	"le5le.com/fileServer/db/mongo"
-	"le5le.com/fileServer/keys"
+	"fileServer/config"
+	"fileServer/db/mongo"
+	"fileServer/keys"
 )
 
 // WalkDir 获取指定目录及所有子目录下的所有文件，可以匹配后缀过滤。
@@ -57,7 +59,7 @@ func IsExist(path string) bool {
 }
 
 // GetUniqueName 获取一个唯一的文件名
-func GetUniqueName(name string) string {
+func GetUniqueName() string {
 	id := bson.NewObjectId()
 	newName := id.Hex()
 	return newName
@@ -66,6 +68,7 @@ func GetUniqueName(name string) string {
 // Put 存储文件到数据库
 func Put(name string, f interface{}, meta interface{}) (string, error) {
 	if f == nil {
+		log.Error().Str("func", "file.Put").Msg("文件指针为空.")
 		return "", errors.New(keys.ErrorFileInfo)
 	}
 	mongoSession := mongo.Session.Clone()
@@ -73,6 +76,7 @@ func Put(name string, f interface{}, meta interface{}) (string, error) {
 
 	mongoFile, err := mongoSession.DB(config.App.Mongo.Database).GridFS(mongo.Files).Create(name)
 	if err != nil {
+		log.Error().Err(err).Str("func", "file.Put").Msg("Fail to create a file on mongo.")
 		return "", err
 	}
 
@@ -98,13 +102,34 @@ func Put(name string, f interface{}, meta interface{}) (string, error) {
 	default:
 	}
 	if err != nil {
+		log.Error().Err(err).Str("func", "file.Put").Msg("Fail to write file on mongo.")
 		return "", err
 	}
 	return fileID, err
 }
 
+// Info 从数据库读取文件基础信息
+func Info(name string) (*FileInfo, error) {
+	if name == "" {
+		return nil, errors.New(keys.ErrorParam)
+	}
+	mongoSession := mongo.Session.Clone()
+	defer mongoSession.Close()
+
+	fileInfo := &FileInfo{}
+	err := mongoSession.DB(config.App.Mongo.Database).GridFS(mongo.Files).Find(bson.M{
+		"filename": name,
+	}).Select(bson.M{"filename": true, "metadata": true}).One(&fileInfo)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return fileInfo, nil
+}
+
 // Get 从数据库读取文件
-func Get(name, p string) error {
+func Get(name, dir string) error {
 	if name == "" {
 		return errors.New(keys.ErrorParam)
 	}
@@ -113,11 +138,23 @@ func Get(name, p string) error {
 
 	file, err := mongoSession.DB(config.App.Mongo.Database).GridFS(mongo.Files).Open(name)
 	if err != nil {
+		log.Error().Caller().Err(err).Str("func", "file.Get").Msgf("Fail to open from GridFS. Name=%s", name)
 		return err
 	}
 	defer file.Close()
-	fw, err := os.Create(p + "/" + name)
+
+	fullname := dir + name
+	cachePath := path.Dir(fullname)
+	if !IsExist(cachePath) {
+		err := os.MkdirAll(cachePath, os.ModePerm)
+		if err != nil {
+			log.Panic().Caller().Err(err).Msgf("Fail to create the CachePath: %s", cachePath)
+		}
+	}
+
+	fw, err := os.Create(fullname)
 	if err != nil {
+		log.Error().Caller().Err(err).Msgf("Fail to create file. fullname=%s", fullname)
 		return err
 	}
 	defer fw.Close()

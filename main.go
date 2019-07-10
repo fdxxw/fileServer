@@ -1,21 +1,36 @@
 package main
 
 import (
-	"log"
+	"flag"
+	"os"
 	"runtime"
+	"time"
 
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	lumberjack "gopkg.in/natefinch/lumberjack.v2"
-	"le5le.com/fileServer/config"
-	"le5le.com/fileServer/db"
-	"le5le.com/fileServer/db/mongo"
-	"le5le.com/fileServer/router"
+
+	"fileServer/config"
+	"fileServer/db"
+	"fileServer/db/mongo"
+	"fileServer/router"
 )
 
 func main() {
+	debug := flag.Bool("debug", false, "Sets log level to debug.")
+	flag.Parse()
+
+	zerolog.SetGlobalLevel(zerolog.InfoLevel)
+	if *debug {
+		zerolog.SetGlobalLevel(zerolog.DebugLevel)
+	}
+
+	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.RFC3339})
+
 	// 处理panic
 	defer func() {
 		if err := recover(); err != nil {
-			log.Printf("[panic] %v\r\n", err)
+			log.Panic().Msgf("%v", err)
 		}
 	}()
 
@@ -24,7 +39,7 @@ func main() {
 
 	// 设置日志
 	if config.App.Log.Filename != "" {
-		log.SetOutput(&lumberjack.Logger{
+		log.Logger = log.Output(&lumberjack.Logger{
 			Filename:   config.App.Log.Filename,
 			MaxSize:    config.App.Log.MaxSize, // mb
 			MaxBackups: config.App.Log.MaxBackups,

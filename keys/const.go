@@ -6,6 +6,7 @@ const (
 	ErrorPermission  = "权限错误"
 	ErrorSave        = "保存数据错误，请稍后重试"
 	ErrorFile        = "读取上传文件错误"
+	ErrorFileExists  = "文件已经存在"
 	ErrorFileMaxSize = "上传文件大小不能超过10M"
 	ErrorFileInfo    = "无法读取文件"
 	ErrorFileSave    = "保存文件错误"

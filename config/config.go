@@ -2,11 +2,12 @@ package config
 
 import (
 	"io/ioutil"
-	"log"
 	"os"
 
+	"github.com/rs/zerolog/log"
 	yaml "gopkg.in/yaml.v2"
-	"le5le.com/fileServer/utils"
+
+	"fileServer/utils"
 )
 
 // App 全局配置文件实例
@@ -30,18 +31,17 @@ func Init() {
 		data, err := ioutil.ReadFile(c)
 		if err == nil {
 			yaml.Unmarshal(data, &App)
-			log.Printf("Read config: %v,,,,,,%v\r\n", c, App)
+			log.Debug().Caller().Str("func", "config.Init").Msgf("Read config: config=%v, app=%v", c, App)
 		} else {
-			log.Printf("Read config error: %v\r\n", err)
+			log.Warn().Err(err).Msgf("Read config error.")
 		}
 	}
 
 	getEnvConfig()
 	if App.Port == 0 {
-		App.Port = 8200
+		App.Port = 8201
 	}
-
-	log.Printf("App config: %v\r\n", App)
+	log.Info().Msgf("App config: %v", App)
 }
 
 func getEnvConfig() {
