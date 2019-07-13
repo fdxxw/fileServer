@@ -45,6 +45,26 @@ func UploadFile(ctx iris.Context) {
 	}
 }
 
+// DelFile 删除文件
+func DelFile(ctx iris.Context) {
+	filename := "/" + ctx.Params().Get("path")
+	log.Debug().Msg(filename)
+	if filename == "" {
+		ctx.StatusCode(iris.StatusNotFound)
+		ctx.Text("")
+		return
+	}
+
+	uid := ctx.Values().GetString("uid")
+	err := Del(filename, CachePath+"/"+uid, uid)
+	if err != nil {
+		ctx.JSON(bson.M{"error": keys.ErrorSave, "errorDetail": err.Error()})
+		return
+	}
+
+	ctx.Text("")
+}
+
 // UploadImage 上传图片
 func UploadImage(ctx iris.Context) {
 	path := upload(ctx, true)

@@ -162,6 +162,43 @@ func Get(name, dir string) error {
 	return err
 }
 
+// Del 从数据库删除文件
+func Del(name, dir, uid string) error {
+	if name == "" {
+		return errors.New(keys.ErrorParam)
+	}
+	mongoSession := mongo.Session.Clone()
+	defer mongoSession.Close()
+
+	var err error
+	type gfsDocID struct {
+		ID interface{} "_id"
+	}
+
+	gfs := mongoSession.DB(config.App.Mongo.Database).GridFS(mongo.Files)
+	iter := gfs.Files.Find(bson.M{"filename": name, "metadata.userId": uid}).Select(bson.M{"_id": 1}).Iter()
+	var doc gfsDocID
+	for iter.Next(&doc) {
+		if e := gfs.RemoveId(doc.ID); e != nil {
+			err = e
+		}
+	}
+	if err == nil && iter != nil {
+		err = iter.Close()
+	}
+	if err != nil {
+		log.Error().Caller().Err(err).Str("func", "file.Del").Msgf("Fail to delete from GridFS. Name=%s", name)
+		return err
+	}
+
+	fullname := dir + name
+	err = os.Remove(fullname)
+	if err != nil {
+		log.Warn().Caller().Err(err).Msgf("Fail to delete file. fullname=%s", fullname)
+	}
+	return nil
+}
+
 // ImageThumbnail 生成图片缩略图
 func ImageThumbnail(src string, w, h int) (string, error) {
 	filename := fmt.Sprintf("%s_%d_%d", src, w, h)
