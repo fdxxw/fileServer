@@ -102,6 +102,40 @@ func Image(ctx iris.Context) {
 	ctx.ServeFile(fullpath, true)
 }
 
+// FileAttr 修改文件属性
+func FileAttr(ctx iris.Context) {
+	ret := make(map[string]interface{})
+	defer ctx.JSON(ret)
+
+	filename := "/" + ctx.Params().Get("path")
+	if filename == "" {
+		ctx.StatusCode(iris.StatusNotFound)
+		ctx.Text("")
+		return
+	}
+
+	data := bson.M{}
+	err := ctx.ReadJSON(&data)
+	if err != nil {
+		ret["error"] = keys.ErrorParam
+		if err != nil {
+			ret["errorDetail"] = err.Error()
+		}
+		return
+	}
+
+	uid := ctx.Values().GetString("uid")
+	data["userId"] = uid
+	data["username"] = ctx.Values().GetString("username")
+	err = PatchAttr(filename, data, uid)
+	if err != nil {
+		ret["error"] = keys.ErrorSave
+		if err != nil {
+			ret["errorDetail"] = err.Error()
+		}
+	}
+}
+
 // upload 上传文件
 func upload(ctx iris.Context, public bool) string {
 	file, info, err := ctx.FormFile("file")
@@ -164,7 +198,6 @@ func upload(ctx iris.Context, public bool) string {
 // download 获取文件
 func download(ctx iris.Context) string {
 	filename := "/" + ctx.Params().Get("path")
-	log.Debug().Msg(filename)
 	if filename == "" {
 		ctx.StatusCode(iris.StatusNotFound)
 		ctx.JSON("")

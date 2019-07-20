@@ -234,3 +234,19 @@ func ImageThumbnail(src string, w, h int) (string, error) {
 
 	return filename, nil
 }
+
+// PatchAttr 修改属性
+func PatchAttr(fullname string, data bson.M, uid string) (err error) {
+	mongoSession := mongo.Session.Clone()
+	defer mongoSession.Close()
+
+	err = mongoSession.DB(config.App.Mongo.Database).GridFS(mongo.Files).Files.
+		Update(bson.M{"filename": fullname, "metadata.userId": uid}, bson.M{"$set": bson.M{"metadata": data}})
+
+	if err != nil {
+		log.Error().Caller().Err(err).Str("func", "file.PatchAttr").Msgf("Fail to write mongo: data=%v", data)
+		err = errors.New(keys.ErrorSave)
+	}
+
+	return
+}
