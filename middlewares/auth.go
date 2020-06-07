@@ -73,7 +73,6 @@ func Auth(ctx iris.Context) {
 		ctx.Next()
 		return
 	}
-
 	ctx.StatusCode(iris.StatusUnauthorized)
 	ret := make(map[string]interface{})
 	ret["error"] = keys.ErrorNeedSign

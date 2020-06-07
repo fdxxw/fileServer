@@ -153,7 +153,6 @@ func upload(ctx iris.Context, public bool) string {
 	if fullname[0] != '/' {
 		fullname = "/" + fullname
 	}
-
 	randomName := ctx.FormValue("randomName")
 	if randomName != "" {
 		dir, filename := path.Split(fullname)
@@ -175,12 +174,14 @@ func upload(ctx iris.Context, public bool) string {
 
 	uid := ctx.Values().GetString("uid")
 	fileInfo, _ := Info(fullname)
+	log.Info().Msg(fileInfo.Filename)
 	if fileInfo != nil && fileInfo.Metadata.UserID == uid {
 		ctx.JSON(bson.M{"error": keys.ErrorFileExists})
 		return ""
 	}
 
 	tags := strings.Split(ctx.FormValue("tags"), ",")
+	log.Info().Msg(fullname)
 	_, err = Put(fullname, file, bson.M{
 		"userId":   ctx.Values().GetString("uid"),
 		"username": ctx.Values().GetString("username"),
@@ -191,7 +192,6 @@ func upload(ctx iris.Context, public bool) string {
 		ctx.JSON(bson.M{"error": keys.ErrorFile, "system": err.Error()})
 		return ""
 	}
-
 	return fullname
 }
 

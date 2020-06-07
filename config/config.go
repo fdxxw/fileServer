@@ -15,7 +15,7 @@ var App Config
 
 // Init 读取全局配置文件
 func Init() {
-	yamls, _ := WalkDir("./configs", ".yaml")
+	// yamls, _ := WalkDir("./configs", ".yaml")
 	paths := make([]string, 0, 30)
 
 	paths = append(paths, "./config/default.yaml")
@@ -23,8 +23,6 @@ func Init() {
 	_, err := os.Stat("/etc/le5leFileServer.yaml")
 	if err == nil || os.IsExist(err) {
 		paths = append(paths, "/etc/le5leFileServer.yaml")
-	} else {
-		paths = append(paths, yamls...)
 	}
 
 	for _, c := range paths {
